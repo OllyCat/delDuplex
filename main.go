@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/md5"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,7 +12,7 @@ import (
 
 type Md5File struct {
 	name string
-	md5  [16]byte
+	md5  string
 }
 
 func main() {
@@ -26,7 +26,7 @@ func main() {
 		wg    sync.WaitGroup
 		ch    = make(chan Md5File)
 		done  = make(chan bool)
-		files = make(map[[16]byte][]string)
+		files = make(map[string][]string)
 	)
 
 	go addFile(files, ch, done)
@@ -50,15 +50,19 @@ func main() {
 	wg.Wait()
 	done <- true
 	for k, v := range files {
-		fmt.Printf("Key = %x, valume = %#v\n", k, v)
+		fmt.Printf("Key = %v, valume = %#v\n", k, v)
 	}
+	delDup(files)
+}
+
+func delDup(files map[string][]string) {
 }
 
 func usage(prog string) {
 	fmt.Printf("Using:\n\n%s <dir name> [<dir name> ...]\n", prog)
 }
 
-func addFile(files map[[16]byte][]string, ch chan Md5File, done chan bool) {
+func addFile(files map[string][]string, ch chan Md5File, done chan bool) {
 	for {
 		select {
 		case <-done:
@@ -75,11 +79,16 @@ func addFile(files map[[16]byte][]string, ch chan Md5File, done chan bool) {
 
 func md5sum(name string, ch chan Md5File, wg *sync.WaitGroup) {
 	defer wg.Done()
-	buff, err := ioutil.ReadFile(name)
+	f, err := os.Open(name)
 	if err != nil {
 		log.Printf("File %v open is filed.\n", name)
 		return
 	}
-	res := Md5File{name, md5.Sum(buff)}
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		log.Printf("Sum error: %v\n", err)
+		return
+	}
+	res := Md5File{name, fmt.Sprintf("%x", h.Sum(nil))}
 	ch <- res
 }
