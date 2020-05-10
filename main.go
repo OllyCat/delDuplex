@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -9,17 +10,23 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 )
 
 type Md5File struct {
-	name string
-	md5  string
+	name    string
+	md5     string
+	modTime time.Time
 }
 
 func main() {
-	args := os.Args[1:]
-	if len(args) == 0 {
-		usage(os.Args[0])
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Using:\n\n%s <dir name> [<dir name> ...]\n", os.Args[0])
+	}
+
+	flag.Parse()
+	if len(flag.Args()) < 1 {
+		flag.Usage()
 		os.Exit(1)
 	}
 
@@ -28,12 +35,12 @@ func main() {
 		ch    = make(chan Md5File)
 		done  = make(chan bool)
 		limit = make(chan struct{}, runtime.NumCPU())
-		files = make(map[string][]string)
+		files = make(map[string][]Md5File)
 	)
 
 	go addFile(files, ch, done)
 
-	for _, i := range args {
+	for _, i := range flag.Args() {
 		err := filepath.Walk(i, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -46,41 +53,43 @@ func main() {
 			return nil
 		})
 		if err != nil {
-			log.Printf("Ошибка чтения пути: %v\n", i)
+			log.Printf("ERROR: incorrect path: %v\n", i)
 		}
 	}
 
 	wg.Wait()
 	done <- true
-	//for k, v := range files {
-	//	if len(v) > 1 {
-	//		fmt.Printf("Key = %v, valume = %#v\n", k, v)
-	//	}
-	//}
 	delDup(files)
 }
 
-func delDup(files map[string][]string) {
-	for _, v := range files {
-		if len(v) > 1 {
-			//fmt.Printf("Удаляем дубликаты файла:\t%v\n", v)
-			fmt.Printf("Удаляем дубликаты файла:\t%v\n", v[0])
+func delDup(files map[string][]Md5File) {
+	for _, f := range files {
+		if len(f) > 1 {
+			v := sort(f)
+			fmt.Printf("Trying delete duplicate of file:\t%v\n", v[0].name)
 			for _, i := range v[1:] {
-				if err := os.Remove(i); err != nil {
-					fmt.Printf("\tудаление не удалось: %v\n", err)
+				if err := os.Remove(i.name); err != nil {
+					log.Printf("\tERROR: delete error: %v\n", err)
 				} else {
-					fmt.Printf("\tудалён файл:\t%v\n", i)
+					fmt.Printf("\tFile deleted:\t%v\n", i.name)
 				}
 			}
 		}
 	}
 }
 
-func usage(prog string) {
-	fmt.Printf("Using:\n\n%s <dir name> [<dir name> ...]\n", prog)
+func sort(f []Md5File) []Md5File {
+	first := f[0].modTime
+	for i := 1; i < len(f); i++ {
+		if f[i].modTime.Before(first) {
+			first = f[i].modTime
+			f[0], f[i] = f[i], f[0]
+		}
+	}
+	return f
 }
 
-func addFile(files map[string][]string, ch chan Md5File, done chan bool) {
+func addFile(files map[string][]Md5File, ch chan Md5File, done chan bool) {
 	for {
 		select {
 		case <-done:
@@ -89,7 +98,7 @@ func addFile(files map[string][]string, ch chan Md5File, done chan bool) {
 			return
 		case f, ok := <-ch:
 			if ok {
-				files[f.md5] = append(files[f.md5], f.name)
+				files[f.md5] = append(files[f.md5], f)
 			}
 		}
 	}
@@ -101,9 +110,15 @@ func md5sum(name string, ch chan Md5File, limit <-chan struct{}, wg *sync.WaitGr
 		<-limit
 	}()
 
+	s, err := os.Lstat(name)
+	if err != nil {
+		log.Printf("ERROR: File %v stat error: %v\n", name, err)
+		return
+	}
+
 	f, err := os.Open(name)
 	if err != nil {
-		log.Printf("File %v opening error: %v\n", name, err)
+		log.Printf("ERROR: File %v opening error: %v\n", name, err)
 		return
 	}
 
@@ -111,9 +126,9 @@ func md5sum(name string, ch chan Md5File, limit <-chan struct{}, wg *sync.WaitGr
 
 	h := md5.New()
 	if _, err := io.Copy(h, f); err != nil {
-		log.Printf("Sum error: %v\n", err)
+		log.Printf("ERROR: Sum error: %v\n", err)
 		return
 	}
-	res := Md5File{name, fmt.Sprintf("%x", h.Sum(nil))}
+	res := Md5File{name, fmt.Sprintf("%x", h.Sum(nil)), s.ModTime()}
 	ch <- res
 }
