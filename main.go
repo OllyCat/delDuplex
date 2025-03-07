@@ -1,3 +1,4 @@
+// Package main
 package main
 
 import (
@@ -13,7 +14,7 @@ import (
 	"time"
 )
 
-type Md5File struct {
+type md5File struct {
 	name    string
 	md5     string
 	modTime time.Time
@@ -32,10 +33,10 @@ func main() {
 
 	var (
 		wg    sync.WaitGroup
-		ch    = make(chan Md5File)
+		ch    = make(chan md5File)
 		done  = make(chan bool)
 		limit = make(chan struct{}, runtime.NumCPU())
-		files = make(map[string][]Md5File)
+		files = make(map[string][]md5File)
 	)
 
 	go addFile(files, ch, done)
@@ -62,7 +63,7 @@ func main() {
 	delDup(files)
 }
 
-func delDup(files map[string][]Md5File) {
+func delDup(files map[string][]md5File) {
 	for _, f := range files {
 		if len(f) > 1 {
 			v := sort(f)
@@ -78,7 +79,7 @@ func delDup(files map[string][]Md5File) {
 	}
 }
 
-func sort(f []Md5File) []Md5File {
+func sort(f []md5File) []md5File {
 	first := f[0].modTime
 	for i := 1; i < len(f); i++ {
 		if f[i].modTime.Before(first) {
@@ -89,7 +90,7 @@ func sort(f []Md5File) []Md5File {
 	return f
 }
 
-func addFile(files map[string][]Md5File, ch chan Md5File, done chan bool) {
+func addFile(files map[string][]md5File, ch chan md5File, done chan bool) {
 	for {
 		select {
 		case <-done:
@@ -104,7 +105,7 @@ func addFile(files map[string][]Md5File, ch chan Md5File, done chan bool) {
 	}
 }
 
-func md5sum(name string, ch chan Md5File, limit <-chan struct{}, wg *sync.WaitGroup) {
+func md5sum(name string, ch chan md5File, limit <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer func() {
 		<-limit
@@ -129,6 +130,6 @@ func md5sum(name string, ch chan Md5File, limit <-chan struct{}, wg *sync.WaitGr
 		log.Printf("ERROR: Sum error: %v\n", err)
 		return
 	}
-	res := Md5File{name, fmt.Sprintf("%x", h.Sum(nil)), s.ModTime()}
+	res := md5File{name, fmt.Sprintf("%x", h.Sum(nil)), s.ModTime()}
 	ch <- res
 }
